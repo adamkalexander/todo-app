@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>To-Do List</title>
+  <style>
+    :root {
+      --bg: #f5f5f4;
+      --card: #ffffff;
+      --text: #1c1917;
+      --muted: #78716c;
+      --border: #e7e5e4;
+      --accent: #2563eb;
+      --danger: #dc2626;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #1c1917;
+        --card: #292524;
+        --text: #f5f5f4;
+        --muted: #a8a29e;
+        --border: #44403c;
+        --accent: #60a5fa;
+        --danger: #f87171;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 48px 16px;
+      background: var(--bg);
+      color: var(--text);
+      font: 16px/1.5 system-ui, -apple-system, sans-serif;
+    }
+    main {
+      max-width: 520px;
+      margin: 0 auto;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+    }
+    h1 { margin: 0 0 16px; font-size: 1.5rem; }
+    form { display: flex; gap: 8px; }
+    input[type="text"] {
+      flex: 1;
+      padding: 10px 12px;
+      font: inherit;
+      color: inherit;
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+    button {
+      font: inherit;
+      cursor: pointer;
+      border: none;
+      border-radius: 8px;
+    }
+    .add {
+      padding: 10px 16px;
+      background: var(--accent);
+      color: #fff;
+      font-weight: 600;
+    }
+    .filters { display: flex; gap: 4px; margin: 16px 0 0; }
+    .filters button {
+      padding: 6px 12px;
+      font-size: 0.9rem;
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid transparent;
+    }
+    .filters button:hover { color: var(--text); }
+    .filters button[aria-pressed="true"] {
+      color: var(--accent);
+      border-color: var(--accent);
+      font-weight: 600;
+    }
+    .range {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: end;
+      gap: 8px;
+      margin: 12px 0 0;
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+    .range label { display: flex; flex-direction: column; gap: 2px; flex: 1 1 180px; }
+    .range input {
+      padding: 6px 8px;
+      font: inherit;
+      color: var(--text);
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color-scheme: light dark;
+    }
+    .range input:disabled { opacity: 0.5; }
+    .range .clear {
+      padding: 6px 10px;
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid var(--border);
+    }
+    .range .clear:hover:not(:disabled) { color: var(--text); }
+    .range .clear:disabled { opacity: 0.5; cursor: default; }
+    ul { list-style: none; margin: 12px 0 0; padding: 0; }
+    li {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 4px;
+      border-bottom: 1px solid var(--border);
+    }
+    li:last-child { border-bottom: none; }
+    li input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer; }
+    li .body { flex: 1; min-width: 0; }
+    li .text { display: block; word-break: break-word; }
+    li.done .text { text-decoration: line-through; color: var(--muted); }
+    li .meta { display: block; color: var(--muted); font-size: 0.8rem; }
+    .delete {
+      background: transparent;
+      color: var(--muted);
+      padding: 4px 8px;
+      font-size: 1.1rem;
+      line-height: 1;
+    }
+    .delete:hover { color: var(--danger); }
+    .empty, .count { color: var(--muted); font-size: 0.9rem; }
+    .empty { text-align: center; padding: 24px 0 4px; }
+    .count { margin: 12px 0 0; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>To-Do List</h1>
+
+    <form id="new-todo">
+      <input type="text" id="todo-text" placeholder="What needs doing?" autocomplete="off" required>
+      <button type="submit" class="add">Add</button>
+    </form>
+
+    <div class="filters" id="filters" role="group" aria-label="Filter to-dos">
+      <button type="button" data-filter="all" aria-pressed="true">All</button>
+      <button type="button" data-filter="active" aria-pressed="false">Not done</button>
+      <button type="button" data-filter="done" aria-pressed="false">Done</button>
+    </div>
+
+    <div class="range" id="range">
+      <label>Completed from
+        <input type="datetime-local" id="range-from">
+      </label>
+      <label>Completed to
+        <input type="datetime-local" id="range-to">
+      </label>
+      <button type="button" class="clear" id="range-clear">Clear</button>
+    </div>
+
+    <ul id="todo-list"></ul>
+    <p id="empty" class="empty"></p>
+    <p id="count" class="count"></p>
+  </main>
+
+  <script>
+    const STORAGE_KEY = 'todos';
+
+    const form = document.getElementById('new-todo');
+    const input = document.getElementById('todo-text');
+    const filters = document.getElementById('filters');
+    const rangeFrom = document.getElementById('range-from');
+    const rangeTo = document.getElementById('range-to');
+    const rangeClear = document.getElementById('range-clear');
+    const list = document.getElementById('todo-list');
+    const empty = document.getElementById('empty');
+    const count = document.getElementById('count');
+
+    const FILTERS = {
+      all: { test: () => true, empty: 'Nothing to do yet. Add something above.' },
+      active: { test: t => !t.done, empty: 'Nothing left to do. Nice work!' },
+      done: { test: t => t.done, empty: 'Nothing completed yet.' },
+    };
+
+    const formatTime = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+
+    // Each to-do: { id: string, text: string, done: boolean, completedAt: number | null }
+    let todos = load();
+    let filter = 'all';
+
+    function load() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
+        return Array.isArray(saved) ? saved : [];
+      } catch {
+        return [];
+      }
+    }
+
+    function save() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(todos));
+      } catch {
+        // Storage may be full or blocked; the list still works for this session.
+      }
+    }
+
+    // Completion-time window from the date inputs, as ms timestamps (null = open-ended).
+    function getRange() {
+      if (filter === 'active') return { from: null, to: null };
+      const from = rangeFrom.value ? new Date(rangeFrom.value).getTime() : null;
+      // The picker has minute precision, so include the whole "to" minute.
+      const to = rangeTo.value ? new Date(rangeTo.value).getTime() + 59_999 : null;
+      return { from, to };
+    }
+
+    function inRange(todo, { from, to }) {
+      if (from === null && to === null) return true;
+      if (!todo.completedAt) return false;
+      return (from === null || todo.completedAt >= from) && (to === null || todo.completedAt <= to);
+    }
+
+    function render() {
+      list.replaceChildren();
+
+      const range = getRange();
+      const rangeActive = range.from !== null || range.to !== null;
+      const visible = todos.filter(t => FILTERS[filter].test(t) && inRange(t, range));
+
+      for (const todo of visible) {
+        const li = document.createElement('li');
+        li.dataset.id = todo.id;
+        li.classList.toggle('done', todo.done);
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.checked = todo.done;
+        checkbox.setAttribute('aria-label', 'Mark done');
+
+        const body = document.createElement('div');
+        body.className = 'body';
+
+        const text = document.createElement('span');
+        text.className = 'text';
+        text.textContent = todo.text; // textContent, not innerHTML, so user text can't inject markup
+        body.append(text);
+
+        if (todo.done && todo.completedAt) {
+          const meta = document.createElement('time');
+          meta.className = 'meta';
+          meta.dateTime = new Date(todo.completedAt).toISOString();
+          meta.textContent = `Done ${formatTime.format(todo.completedAt)}`;
+          body.append(meta);
+        }
+
+        const del = document.createElement('button');
+        del.className = 'delete';
+        del.textContent = '✕';
+        del.setAttribute('aria-label', 'Delete');
+
+        li.append(checkbox, body, del);
+        list.append(li);
+      }
+
+      for (const btn of filters.querySelectorAll('button')) {
+        btn.setAttribute('aria-pressed', btn.dataset.filter === filter);
+      }
+
+      const remaining = todos.filter(t => !t.done).length;
+      empty.hidden = visible.length > 0;
+      empty.textContent = rangeActive && todos.some(FILTERS[filter].test)
+        ? 'Nothing was completed in that time range.'
+        : FILTERS[filter].empty;
+
+      // Not-done to-dos have no completion time, so the range doesn't apply there.
+      rangeFrom.disabled = rangeTo.disabled = filter === 'active';
+      rangeClear.disabled = filter === 'active' || (!rangeFrom.value && !rangeTo.value);
+      count.hidden = todos.length === 0;
+      count.textContent = `${remaining} of ${todos.length} left`;
+    }
+
+    // Save and re-render after every change.
+    function update() {
+      save();
+      render();
+    }
+
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const text = input.value.trim();
+      if (!text) return;
+      todos.push({ id: crypto.randomUUID(), text, done: false, completedAt: null });
+      input.value = '';
+      input.focus();
+      update();
+    });
+
+    // One listener on the list handles checkbox and delete clicks for every row.
+    list.addEventListener('click', (e) => {
+      const li = e.target.closest('li');
+      if (!li) return;
+      const id = li.dataset.id;
+
+      if (e.target.matches('input[type="checkbox"]')) {
+        const todo = todos.find(t => t.id === id);
+        if (todo) {
+          todo.done = e.target.checked;
+          todo.completedAt = todo.done ? Date.now() : null;
+        }
+        update();
+      } else if (e.target.matches('.delete')) {
+        todos = todos.filter(t => t.id !== id);
+        update();
+      }
+    });
+
+    filters.addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-filter]');
+      if (!btn) return;
+      filter = btn.dataset.filter;
+      render(); // filter is a view setting, so no save needed
+    });
+
+    rangeFrom.addEventListener('input', render);
+    rangeTo.addEventListener('input', render);
+    rangeClear.addEventListener('click', () => {
+      rangeFrom.value = rangeTo.value = '';
+      render();
+    });
+
+    render();
+  </script>
+</body>
+</html>
