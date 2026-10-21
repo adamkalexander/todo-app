@@ -13,6 +13,7 @@
       --border: #e7e5e4;
       --accent: #2563eb;
       --danger: #dc2626;
+      --progress: #d97706;
     }
     @media (prefers-color-scheme: dark) {
       :root {
@@ -23,6 +24,7 @@
         --border: #44403c;
         --accent: #60a5fa;
         --danger: #f87171;
+        --progress: #fbbf24;
       }
     }
     * { box-sizing: border-box; }
@@ -121,6 +123,22 @@
     li .text { display: block; word-break: break-word; }
     li.done .text { text-decoration: line-through; color: var(--muted); }
     li .meta { display: block; color: var(--muted); font-size: 0.8rem; }
+    li.in-progress { box-shadow: inset 3px 0 0 var(--progress); padding-left: 10px; }
+    .status {
+      padding: 3px 10px;
+      font-size: 0.8rem;
+      white-space: nowrap;
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+    }
+    .status:hover { color: var(--text); }
+    .status[aria-pressed="true"] {
+      color: var(--progress);
+      border-color: var(--progress);
+      font-weight: 600;
+    }
     .delete {
       background: transparent;
       color: var(--muted);
@@ -146,6 +164,7 @@
     <div class="filters" id="filters" role="group" aria-label="Filter to-dos">
       <button type="button" data-filter="all" aria-pressed="true">All</button>
       <button type="button" data-filter="active" aria-pressed="false">Not done</button>
+      <button type="button" data-filter="progress" aria-pressed="false">In progress</button>
       <button type="button" data-filter="done" aria-pressed="false">Done</button>
     </div>
 
@@ -180,12 +199,18 @@
     const FILTERS = {
       all: { test: () => true, empty: 'Nothing to do yet. Add something above.' },
       active: { test: t => !t.done, empty: 'Nothing left to do. Nice work!' },
+      progress: { test: t => t.inProgress && !t.done, empty: 'Nothing in progress.' },
       done: { test: t => t.done, empty: 'Nothing completed yet.' },
     };
 
+    // Filters whose to-dos have no completion time, so the date range can't apply.
+    const UNDATED_FILTERS = ['active', 'progress'];
+
     const formatTime = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
-    // Each to-do: { id: string, text: string, done: boolean, completedAt: number | null }
+    // Each to-do: { id: string, text: string, done: boolean, completedAt: number | null,
+    //               inProgress?: boolean, startedAt?: number | null }
+    // inProgress/startedAt are absent on to-dos saved before that feature; absent reads as not started.
     let todos = load();
     let filter = 'all';
 
@@ -208,7 +233,7 @@
 
     // Completion-time window from the date inputs, as ms timestamps (null = open-ended).
     function getRange() {
-      if (filter === 'active') return { from: null, to: null };
+      if (UNDATED_FILTERS.includes(filter)) return { from: null, to: null };
       const from = rangeFrom.value ? new Date(rangeFrom.value).getTime() : null;
       // The picker has minute precision, so include the whole "to" minute.
       const to = rangeTo.value ? new Date(rangeTo.value).getTime() + 59_999 : null;
@@ -231,7 +256,9 @@
       for (const todo of visible) {
         const li = document.createElement('li');
         li.dataset.id = todo.id;
+        const inProgress = todo.inProgress && !todo.done;
         li.classList.toggle('done', todo.done);
+        li.classList.toggle('in-progress', inProgress);
 
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
@@ -252,6 +279,12 @@
           meta.dateTime = new Date(todo.completedAt).toISOString();
           meta.textContent = `Done ${formatTime.format(todo.completedAt)}`;
           body.append(meta);
+        } else if (inProgress && todo.startedAt) {
+          const meta = document.createElement('time');
+          meta.className = 'meta';
+          meta.dateTime = new Date(todo.startedAt).toISOString();
+          meta.textContent = `Started ${formatTime.format(todo.startedAt)}`;
+          body.append(meta);
         }
 
         const del = document.createElement('button');
@@ -259,7 +292,19 @@
         del.textContent = '✕';
         del.setAttribute('aria-label', 'Delete');
 
-        li.append(checkbox, body, del);
+        li.append(checkbox, body);
+
+        // Done to-dos don't need a start/stop toggle.
+        if (!todo.done) {
+          const status = document.createElement('button');
+          status.className = 'status';
+          status.textContent = inProgress ? 'In progress' : 'Start';
+          status.setAttribute('aria-pressed', inProgress);
+          status.title = inProgress ? 'Mark as not started' : 'Mark as in progress';
+          li.append(status);
+        }
+
+        li.append(del);
         list.append(li);
       }
 
@@ -268,16 +313,18 @@
       }
 
       const remaining = todos.filter(t => !t.done).length;
+      const started = todos.filter(FILTERS.progress.test).length;
       empty.hidden = visible.length > 0;
       empty.textContent = rangeActive && todos.some(FILTERS[filter].test)
         ? 'Nothing was completed in that time range.'
         : FILTERS[filter].empty;
 
       // Not-done to-dos have no completion time, so the range doesn't apply there.
-      rangeFrom.disabled = rangeTo.disabled = filter === 'active';
-      rangeClear.disabled = filter === 'active' || (!rangeFrom.value && !rangeTo.value);
+      const undated = UNDATED_FILTERS.includes(filter);
+      rangeFrom.disabled = rangeTo.disabled = undated;
+      rangeClear.disabled = undated || (!rangeFrom.value && !rangeTo.value);
       count.hidden = todos.length === 0;
-      count.textContent = `${remaining} of ${todos.length} left`;
+      count.textContent = `${remaining} of ${todos.length} left` + (started ? ` · ${started} in progress` : '');
     }
 
     // Save and re-render after every change.
@@ -290,23 +337,32 @@
       e.preventDefault();
       const text = input.value.trim();
       if (!text) return;
-      todos.push({ id: crypto.randomUUID(), text, done: false, completedAt: null });
+      todos.push({ id: crypto.randomUUID(), text, done: false, completedAt: null, inProgress: false, startedAt: null });
       input.value = '';
       input.focus();
       update();
     });
 
-    // One listener on the list handles checkbox and delete clicks for every row.
+    // One listener on the list handles checkbox, status, and delete clicks for every row.
     list.addEventListener('click', (e) => {
       const li = e.target.closest('li');
       if (!li) return;
       const id = li.dataset.id;
+      const todo = todos.find(t => t.id === id);
 
       if (e.target.matches('input[type="checkbox"]')) {
-        const todo = todos.find(t => t.id === id);
         if (todo) {
           todo.done = e.target.checked;
           todo.completedAt = todo.done ? Date.now() : null;
+          // Finishing ends "in progress"; reopening starts over as not started.
+          todo.inProgress = false;
+          if (!todo.done) todo.startedAt = null;
+        }
+        update();
+      } else if (e.target.matches('.status')) {
+        if (todo) {
+          todo.inProgress = !todo.inProgress;
+          todo.startedAt = todo.inProgress ? Date.now() : null;
         }
         update();
       } else if (e.target.matches('.delete')) {
